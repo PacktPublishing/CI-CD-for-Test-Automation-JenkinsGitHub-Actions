@@ -1,0 +1,70 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Unit tests - backend') {
+            agent {
+                docker {
+                    image 'snakee/golang-junit:1.21'
+                    reuseNode true
+                }
+            }
+            environment {
+                HOME = '/tmp'
+                GOCACHE = '/tmp/go-build'
+                GOPATH = '/tmp/go'
+                GOMODCACHE = '/tmp/go/pkg/mod'
+            }
+            steps {
+                sh 'mkdir -p /tmp/go-build /tmp/go/pkg/mod'
+                dir('bugtracker-backend') {
+                    sh '''
+                        go test -v ./... 2>&1 | go-junit-report > test-results.xml
+                        # Generate coverage report
+                        go test -coverprofile=coverage.out ./...
+                        go tool cover -html=coverage.out -o coverage.html
+
+                        mkdir -p reports
+                        mv coverage.html reports/
+                    '''
+                }
+            }
+            post {
+                always {
+                    junit 'bugtracker-backend/test-results.xml'
+                    publishHTML target: [
+                        reportName: 'Coverage Report',
+                        reportDir: 'bugtracker-backend/reports',
+                        reportFiles: 'coverage.html',
+                    ]
+                }
+            }
+        }
+        stage('Unit tests - frontend') {
+            agent {
+                docker {
+                    image 'node:18'
+                    reuseNode true
+                }
+            }
+            environment {
+                HOME = '/tmp'
+                NPM_CONFIG_CACHE = '/tmp/.npm'
+                NPM_CONFIG_OPTIONAL = 'true'
+                NEXT_TELEMETRY_DISABLED = '1'
+            }
+            steps {
+                sh 'mkdir -p /tmp/.npm'
+                dir('bugtracker-frontend') {
+                    sh 'npm ci --include=optional --no-audit --no-fund'
+                    sh 'npm test'
+                }
+            }
+            post {
+                always {
+                    junit 'bugtracker-frontend/test-results.xml'
+                }
+            }
+        }
+    }
+}
